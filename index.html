@@ -126,7 +126,11 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
 <noscript><p style="padding:16px">このページはJavaScriptを使います。ブラウザの設定でJavaScriptを有効にしてください。</p></noscript>
 <div id="modalroot"></div>
 <script>
-window.addEventListener("error",function(e){var a=document.getElementById("app");if(a)a.insertAdjacentHTML("afterbegin",'<p style="color:#b3261e;font-size:14px">エラーが起きました: '+String(e.message).replace(/[<>&]/g,"")+'</p>')});
+window.addEventListener("error",function(e){
+  // 拡張機能・セキュリティソフトなど外部のエラー(Script error.)は表示しない
+  if(!e||!e.message||/^Script error/i.test(e.message)||(e.filename&&e.filename.split("#")[0]!==location.href.split("#")[0]))return;
+  var a=document.getElementById("app");if(a)a.insertAdjacentHTML("afterbegin",'<p style="color:#b3261e;font-size:14px">エラーが起きました: '+String(e.message).replace(/[<>&]/g,"")+'(行 '+(e.lineno||"?")+')</p>');
+});
 /* ===== データ =====
  地図を追加するときは MAPS に1件足す。
  {id:'一意のID', year:'表示用(例 R7)', q:問題番号, station:'○○消防署管轄', img:'画像(data URI または URL)', w:画像幅px, h:画像高さpx,
