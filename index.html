@@ -195,7 +195,7 @@ function norm(s){
   var t=s.replace(/^(岐阜県)?(岐阜市|瑞穂市|山県市|本巣市|本巣郡北方町|本巣郡)/,'');
   return t||s;
 }
-function isPin(m){return !!(m&&m.draw&&store.pin[m.id])}
+function isPin(m){return false} // 場所当ては使わない(最近の試験で出題されないため)
 var PIN_R=4; // 場所当ての許容範囲(地図の横幅に対する%)
 function pinDist(m,a,b){var dx=a.x-b.x,dy=(a.y-b.y)*m.h/m.w;return Math.sqrt(dx*dx+dy*dy)}
 function waters(m){return m.items.filter(function(it){return it.kind==='water'})}
@@ -300,7 +300,6 @@ function renderMap(keepScroll){
   var ttl=m.draw?esc(m.title)+'<br><span class="note">'+esc(m.station)+(m.area?'・'+esc(m.area):'')+'</span>':esc(m.year)+' 問題'+m.q+'<br><span class="note">'+esc(m.station)+'</span>';
   var h='<div class="top"><button class="ghost" type="button" id="back">← 一覧</button><div class="t">'+ttl+'</div>'+zoomBar()+'</div>';
   var hasW=m.items.some(function(it){return it.kind==='water'});
-  if(m.draw&&hasW&&!graded)h+='<div class="kseg" id="pinseg"><button type="button" data-pin="0" aria-pressed="'+!pin+'">水利: 記号を答える</button><button type="button" data-pin="1" aria-pressed="'+pin+'">水利: 場所を答える</button></div>';
   var WN=waters(m).length,PN=(d.pins||[]).length,PM=pin?pinMatch(m,d):null;
   if(pin&&!graded)h+='<div class="banner hot">水利の場所当て: 地図の空いている所をタップして水利を置き、記号を選びます。置いた水利をタップすると直せます(置いた数 '+PN+' / '+WN+')</div>';
   h+='<div class="mapbox"><div class="mapin'+(pin&&!graded?' tapme':'')+'" style="width:'+(zoom*100)+'%"><img src="'+m.img+'" alt="'+esc(m.station)+'の地図" draggable="false">';
