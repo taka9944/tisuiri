@@ -198,15 +198,26 @@ function norm(s){
 function isPin(m){return !!(m&&m.draw&&store.pin[m.id])}
 var PIN_R=4; // 場所当ての許容範囲(地図の横幅に対する%)
 function pinDist(m,a,b){var dx=a.x-b.x,dy=(a.y-b.y)*m.h/m.w;return Math.sqrt(dx*dx+dy*dy)}
+function waters(m){return m.items.filter(function(it){return it.kind==='water'})}
+// 場所当て: 置いた水利(位置+記号)と正しい水利を、近い順に1対1で対応させる
+function pinMatch(m,d){
+  var P=d.pins||[],pairs=[],bi={},bp={};
+  waters(m).forEach(function(it){P.forEach(function(p,j){if(p.s===it.ans){var dd=pinDist(m,p,it);if(dd<=PIN_R)pairs.push([dd,it.n,j])}})});
+  pairs.sort(function(a,b){return a[0]-b[0]});
+  pairs.forEach(function(q){if(bi[q[1]]==null&&bp[q[2]]==null){bi[q[1]]=q[2];bp[q[2]]=q[1]}});
+  return {byItem:bi,byPin:bp};
+}
+function countAnswered(m,d){
+  var pin=isPin(m),n=m.items.filter(function(it){return !(pin&&it.kind==='water')&&answered(m,it,d)}).length;
+  return pin?n+Math.min((d.pins||[]).length,waters(m).length):n;
+}
 function okItem(m,it,d){
-  if(it.kind==='water'&&isPin(m)){var p=d['p'+it.n];if(!p)return false;
-    // 同じ記号の水利が複数ある場合は、そのどれかに近ければ正解
-    return m.items.some(function(o){return o.kind==='water'&&o.ans===it.ans&&pinDist(m,p,o)<=PIN_R})}
+  if(it.kind==='water'&&isPin(m))return pinMatch(m,d).byItem[it.n]!=null;
   var v=d[it.n];if(v==null||v==='')return false;
   if(it.kind==='water')return v===it.ans;
   var n=norm(v);return ansList(it).some(function(a){return norm(a)===n});
 }
-function answered(m,it,d){return it.kind==='water'&&isPin(m)?!!d['p'+it.n]:(d[it.n]!=null&&d[it.n]!=='')}
+function answered(m,it,d){return it.kind==='water'&&isPin(m)?false:(d[it.n]!=null&&d[it.n]!=='')}
 function draft(id){return store.draft[id]=store.draft[id]||{}}
 function wl(m,it){ // 〈 〉の位置(自作の地図)
   if(it.lx!=null)return {x:it.lx,y:it.ly};
@@ -236,6 +247,7 @@ function overlay(m,o){
   });
   (o.pins||[]).forEach(function(p){
     var X=p.x*10,Y=p.y/100*H,col=p.state==='ok'?'#1f7a4d':p.state==='ng'?'#b3261e':'#d9480f';
+    if(p.s&&sym(p.s)){var z=fs*1.4;s+='<circle cx="'+X+'" cy="'+Y+'" r="'+(z*0.66)+'" fill="#fff" stroke="'+col+'" stroke-width="5"/><g transform="translate('+(X-z/2)+','+(Y-z/2)+') scale('+(z/40)+')">'+sym(p.s).svg.replace(/cB/g,'cBp'+p.n)+'</g>';return}
     s+='<circle cx="'+X+'" cy="'+Y+'" r="'+(fs*0.55)+'" fill="'+col+'" stroke="#fff" stroke-width="4"/><text x="'+X+'" y="'+Y+'" text-anchor="middle" dominant-baseline="central" font-size="'+(fs*0.6)+'" font-weight="700" font-family="sans-serif" fill="#fff">'+NUM.charAt(p.n-1)+'</text>';
   });
   (o.truth||[]).forEach(function(p){
@@ -289,11 +301,12 @@ function renderMap(keepScroll){
   var h='<div class="top"><button class="ghost" type="button" id="back">← 一覧</button><div class="t">'+ttl+'</div>'+zoomBar()+'</div>';
   var hasW=m.items.some(function(it){return it.kind==='water'});
   if(m.draw&&hasW&&!graded)h+='<div class="kseg" id="pinseg"><button type="button" data-pin="0" aria-pressed="'+!pin+'">水利: 記号を答える</button><button type="button" data-pin="1" aria-pressed="'+pin+'">水利: 場所を答える</button></div>';
-  if(pinTarget!=null){var pt=m.items.filter(function(x){return x.n===pinTarget})[0];h+='<div class="banner hot">地図をタップして、'+labelTxt(pt)+' '+esc(symName(pt.ans))+' の場所を置いてください</div>'}
-  h+='<div class="mapbox"><div class="mapin'+(pinTarget!=null?' tapme':'')+'" style="width:'+(zoom*100)+'%"><img src="'+m.img+'" alt="'+esc(m.station)+'の地図" draggable="false">';
+  var WN=waters(m).length,PN=(d.pins||[]).length,PM=pin?pinMatch(m,d):null;
+  if(pin&&!graded)h+='<div class="banner hot">水利の場所当て: 地図の空いている所をタップして水利を置き、記号を選びます。置いた水利をタップすると直せます(置いた数 '+PN+' / '+WN+')</div>';
+  h+='<div class="mapbox"><div class="mapin'+(pin&&!graded?' tapme':'')+'" style="width:'+(zoom*100)+'%"><img src="'+m.img+'" alt="'+esc(m.station)+'の地図" draggable="false">';
   var pins=[],truth=[];
-  if(pin)m.items.forEach(function(it){if(it.kind!=='water')return;var p=d['p'+it.n];
-    if(p)pins.push({x:p.x,y:p.y,n:it.n,state:graded?(okItem(m,it,d)?'ok':'ng'):''});if(graded)truth.push({x:it.x,y:it.y})});
+  if(pin){(d.pins||[]).forEach(function(p,j){pins.push({x:p.x,y:p.y,s:p.s,n:j+1,state:graded?(PM.byPin[j]!=null?'ok':'ng'):''})});
+    if(graded)waters(m).forEach(function(it){truth.push({x:it.x,y:it.y})});}
   h+=overlay(m,{hideWater:pin,pins:pins,truth:truth});
   m.items.forEach(function(it){
     if(pin&&it.kind==='water')return;
@@ -306,11 +319,14 @@ function renderMap(keepScroll){
   h+='<div class="legend"><span>点線枠=未回答</span><span>実線枠=回答済み</span><span>「2倍」「3倍」で拡大し、指でスクロール</span><button type="button" class="override" id="legbtn" style="margin:0">記号の凡例</button></div>';
   var tot=0,got=0,isOk2=function(it){return okItem(m,it,d)||okOverride[it.n]};
   if(graded){m.items.forEach(function(it){tot+=PTS[it.kind];if(isOk2(it))got+=PTS[it.kind]});
-    h+='<div class="panel"><div class="score">'+got+' / '+tot+'点</div><p class="lead">○ '+m.items.filter(isOk2).length+' / '+m.items.length+'か所(対象物・町丁名 各'+PTS.name+'点、水利 各'+PTS.water+'点)'+(pin?'。場所当ては緑の点線の円の中なら正解':'')+'</p></div>';}
+    h+='<div class="panel"><div class="score">'+got+' / '+tot+'点</div><p class="lead">○ '+m.items.filter(isOk2).length+' / '+m.items.length+'か所(対象物・町丁名 各'+PTS.name+'点、水利 各'+PTS.water+'点)'+(pin?'。場所当ては、正しい記号を緑の点線の円の中に置けば正解':'')+'</p></div>';}
   h+='<div class="panel"><div class="sheet">';
+  var wrow=false;
   m.items.forEach(function(it){
     var v=d[it.n],ok=graded&&isOk2(it),vh;
-    if(it.kind==='water'&&pin)vh='<span>'+symHtml(it.ans)+' の場所</span><div class="corr">'+(d['p'+it.n]?'置きました':'<span class="empty">未回答(タップして地図に置く)</span>')+'</div>';
+    if(it.kind==='water'&&pin&&!graded){if(wrow)return;wrow=true;var W0=waters(m);
+      h+='<div><button type="button" class="item" id="pinrow"><span class="no water">〈'+NUM.charAt(W0[0].n-1)+'〉'+(W0.length>1?'〜<br>〈'+NUM.charAt(W0[W0.length-1].n-1)+'〉':'')+'<span class="kind">消防水利</span></span><span class="val">水利の場所 '+WN+'か所<div class="corr">'+(PN?'置いた数 '+PN+' / '+WN:'<span class="empty">地図をタップして置く</span>')+'</div></span></button></div>';return}
+    if(it.kind==='water'&&pin)vh='<span>'+symHtml(it.ans)+'</span><div class="corr">'+(ok?'場所と記号が正しい':'この記号を正しい場所(緑の点線の円)に置けていません')+'</div>';
     else vh=(v==null||v==='')?'<span class="empty">未回答</span>':(it.kind==='water'?symHtml(v):esc(v));
     h+='<div><button type="button" class="item'+(graded?(ok?' ok':' ng'):'')+'" data-n="'+it.n+'"><span class="no '+it.kind+'">'+label(it)+'<span class="kind">'+KIND[it.kind].replace('(図式記号)','')+'</span></span><span class="val">'+vh+
       (graded&&!ok&&!(it.kind==='water'&&pin)?'<div class="corr">正解: '+ansShow(it)+'</div>':'')+(graded&&it.note?'<div class="corr note">'+esc(it.note)+'</div>':'')+(graded&&ok&&it.kind!=='water'&&Array.isArray(it.ans)?'<div class="corr">解答の表記: '+esc(it.ans[0])+'</div>':'')+'</span>'+(graded?'<span class="mark">'+(ok?'○':'×')+'</span>':'')+'</button>'+
@@ -318,7 +334,7 @@ function renderMap(keepScroll){
   });
   h+='</div></div>';
   if(graded)h+='<div class="row"><button class="primary" type="button" id="retry">もう一度(回答を消す)</button><button class="ghost" type="button" id="ansbtn">答えのページ</button><button class="ghost" type="button" id="back2">一覧へ</button></div>';
-  else{var nd=m.items.filter(function(it){return answered(m,it,d)}).length;
+  else{var nd=countAnswered(m,d);
     h+='<button class="primary" type="button" id="grade">答え合わせ('+nd+'/'+m.items.length+' 回答済み)</button><div class="row"><button class="ghost" type="button" id="clear">回答を全部消す</button><button class="ghost" type="button" id="ansbtn">答えのページ</button></div>';}
   app.innerHTML=h;restoreBox(k);
   app.onclick=function(e){
@@ -330,12 +346,13 @@ function renderMap(keepScroll){
     if((t=e.target.closest('[data-ov]'))){okOverride[+t.getAttribute('data-ov')]=1;saveRes();renderMap(true);return}
     if((t=e.target.closest('.hs,.item'))){
       var it=m.items.filter(function(x){return x.n===+t.getAttribute('data-n')})[0];
-      if(pin&&it.kind==='water'&&!graded){pinTarget=it.n;renderMap(true);var mb=document.querySelector('.mapbox');if(mb)mb.scrollIntoView({block:'center',behavior:'smooth'});return}
       openItem(it.n);return}
-    if(pinTarget!=null&&e.target.closest('.mapin')){var p=mapXY(e);if(p){d['p'+pinTarget]=p;save();
-      var nx=m.items.filter(function(x){return x.kind==='water'&&!d['p'+x.n]})[0];pinTarget=nx?nx.n:null;renderMap(true)}return}
+    if(e.target.closest('#pinrow')){var mb=document.querySelector('.mapbox');if(mb)mb.scrollIntoView({block:'center',behavior:'smooth'});return}
+    if(pin&&!graded&&e.target.closest('.mapin')){var p=mapXY(e);if(!p)return;var P=d.pins||[],hit=-1,best=1e9;
+      P.forEach(function(q,j){var dd=pinDist(m,q,p);if(dd<3&&dd<best){best=dd;hit=j}});
+      openPin(hit,p);return}
     if(e.target.id==='grade'){
-      var nd=m.items.filter(function(it){return answered(m,it,d)}).length;
+      var nd=countAnswered(m,d);
       var go=function(){graded=true;pinTarget=null;saveRes();renderMap();window.scrollTo(0,0)};
       if(nd<m.items.length){ask('未回答が'+(m.items.length-nd)+'か所あります。このまま答え合わせしますか?','答え合わせする',go);return}
       go();return;
@@ -390,6 +407,23 @@ function openItem(n){
 }
 function symGrid(v,hide,toggle){
   return (toggle?'<label class="nametog"><input type="checkbox" id="hidenames"'+(hide?' checked':'')+'>記号の名前を隠す(記号を覚える練習)</label>':'')+'<div class="syms">'+SYMBOLS.map(function(s){return '<button type="button" class="symb" data-s="'+s.id+'" aria-pressed="'+(v===s.id)+'" aria-label="'+(hide?'記号'+s.id:esc(s.name))+'">'+symSvg(s.id)+(hide?'':'<small>'+esc(s.name)+'</small>')+'</button>'}).join('')+'</div>';
+}
+function openPin(j,p){
+  var m=cur,d=draft(m.id),P=d.pins=d.pins||[],cur1=j>=0?P[j]:null;
+  if(!cur1&&P.length>=waters(m).length){ask('この地図の水利は'+waters(m).length+'か所です。置いた水利をタップして直すか、消してから置いてください。','OK',function(){});return}
+  var h='<div class="modal" id="modal"><div class="dlg" role="dialog" aria-modal="true"><div class="top"><h3>'+(cur1?'置いた水利を直す':'ここに置く水利を選ぶ')+'</h3><button class="ghost" type="button" id="mclose">閉じる</button></div>';
+  h+='<div class="pv" id="pv"><div class="mapin" style="position:absolute"><img src="'+m.img+'" alt="" style="position:static;width:100%">'+overlay(m,{hideWater:true,pins:P.map(function(q,k){return {x:q.x,y:q.y,s:q.s,n:k+1}})})+'</div><i></i></div>';
+  h+='<p class="note">この場所にある消防水利の記号を選んでください。</p>'+symGrid(cur1?cur1.s:null,!!store.hideNames,true);
+  if(cur1)h+='<div class="row"><button class="ghost" type="button" id="pdel" style="color:var(--ng)">この水利を消す</button></div>';
+  h+='</div></div>';
+  mroot.innerHTML=h;placePreview(m,cur1?{x:cur1.x,y:cur1.y}:p,true);
+  var mo=document.getElementById('modal');
+  mo.onclick=function(e){var t;
+    if(e.target===mo||e.target.id==='mclose')return closeModal();
+    if((t=e.target.closest('.symb'))){var sv=t.getAttribute('data-s');if(cur1)cur1.s=sv;else P.push({x:p.x,y:p.y,s:sv});save();closeModal();return}
+    if(e.target.id==='pdel'){P.splice(j,1);save();closeModal();return}
+  };
+  var hn=document.getElementById('hidenames');if(hn)hn.onchange=function(){store.hideNames=hn.checked;save();openPin(j,p)};
 }
 function placePreview(m,P,wide){
   var pv=document.getElementById('pv');if(!pv)return;var mi=pv.querySelector('.mapin');
